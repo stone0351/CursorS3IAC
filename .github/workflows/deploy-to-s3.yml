@@ -1,37 +1,38 @@
-name: Deploy to AWS S3
 
+name: Deploy static files to AWS S3
 on:
   push:
     branches:
-      - master  # 修改为您实际使用的分支名（main或master）
+      - master  # 当推送到 master 分支时触发
+      # - python-refactor  # 当推送到 python-refactor 分支时也触发
     paths:
-      - '**/*.html'
-      - '**/*.css'
-      - '**/*.js'
-      - '**/*.jpg'
-      - '**/*.png'
-      - '**/*.svg'
-      - '**/*.ico'
-  
-  workflow_dispatch:  # 允许手动触发
+        - '**/*.html'
+        - '**/*.css'
+        - '**/*.js'
+        - '**/*.jpg'
+        - '**/*.png'
+        - '**/*.svg'
+        - '**/*.ico'
+    
+  workflow_dispatch:  # 手动触发
 
+permissions:
+  id-token: write  # 允许 GitHub OIDC 访问 AWS
+  contents: read
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v3
-        
-      - name: Configure AWS credentials
+      - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-region: ${{ secrets.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          role-duration-seconds: 1200
-      
-      - name: Upload frontend to S3
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Sync static files to S3
         run: |
+          # 上传 static 文件夹到 S3 桶
           # 上传HTML、CSS和JavaScript文件
           aws s3 sync . s3://${{ secrets.AWS_S3_BUCKET }} \
             --exclude "*" \
@@ -43,23 +44,8 @@ jobs:
             --include "static/**/*.svg" \
             --include "static/**/*.ico" \
             --delete
-      
-      - name: Invalidate CloudFront cache
+          
+      - name: Invalidate CloudFront Cache
         run: |
-          # 获取CloudFront分配ID
-          if [ -n "${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }}" ]; then
-            # 如果已经提供了分配ID，直接使用
-            aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
-            echo "已创建CloudFront缓存失效"
-          else
-            # 尝试使用域名查找分配ID
-            DISTRIBUTION_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases.Items!=null] | [?contains(Aliases.Items, '${{ secrets.DOMAIN_NAME }}')].Id" --output text)
-            
-            if [ -n "$DISTRIBUTION_ID" ]; then
-              # 创建缓存失效
-              aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
-              echo "已创建CloudFront缓存失效，分配ID: $DISTRIBUTION_ID"
-            else
-              echo "警告：未找到匹配的CloudFront分配，跳过缓存失效步骤"
-            fi
-          fi
+          # 刷新 CloudFront 缓存以使更改立即可见
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
