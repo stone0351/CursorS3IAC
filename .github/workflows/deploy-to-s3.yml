@@ -5,14 +5,14 @@ on:
     branches:
       - master  # 当推送到 master 分支时触发
       # - python-refactor  # 当推送到 python-refactor 分支时也触发
-    # paths:
-      #  - '**/*.html'
-      #  - '**/*.css'
-      #  - '**/*.js'
-      #  - '**/*.jpg'
-      #  - '**/*.png'
-      #  - '**/*.svg'
-      #  - '**/*.ico'
+    paths:
+      - '**/*.html'
+      - '**/*.css'
+      - '**/*.js'
+      - '**/*.jpg'
+      - '**/*.png'
+      - '**/*.svg'
+      - '**/*.ico'
     
   workflow_dispatch:  # 手动触发
 
@@ -35,8 +35,14 @@ jobs:
           # 上传 static 文件夹到 S3 桶
           # 上传HTML、CSS和JavaScript文件
           aws s3 sync . s3://${{ secrets.AWS_S3_BUCKET }} \
-            --exclude "backend/**" \
-            --include "*" \
+            --exclude "*" \
+            --include "*.html" \
+            --include "static/**/*.css" \
+            --include "static/**/*.js" \
+            --include "static/**/*.jpg" \
+            --include "static/**/*.png" \
+            --include "static/**/*.svg" \
+            --include "static/**/*.ico" \
             --delete
           
       - name: Invalidate CloudFront Cache
