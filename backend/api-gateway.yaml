@@ -1,0 +1,326 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS IAC Code Execution Platform API
+
+Parameters:
+  StageName:
+    Type: String
+    Default: api
+    Description: API Gateway stage name
+
+Resources:
+  ApiGatewayApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref StageName
+      Cors:
+        AllowMethods: "'GET,POST,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src/
+      Handler: auth.handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref UsersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /auth/verify
+            Method: post
+            RestApiId: !Ref ApiGatewayApi
+
+  AwsKeysFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src/
+      Handler: aws_keys.handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          KEYS_TABLE: !Ref AwsKeysTable
+          KMS_KEY_ID: !Ref KmsKey
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AwsKeysTable
+        - KMSDecryptPolicy:
+            KeyId: !Ref KmsKey
+      Events:
+        ListKeysApiEvent:
+          Type: Api
+          Properties:
+            Path: /aws-keys
+            Method: get
+            RestApiId: !Ref ApiGatewayApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+        CreateKeyApiEvent:
+          Type: Api
+          Properties:
+            Path: /aws-keys
+            Method: post
+            RestApiId: !Ref ApiGatewayApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+        GetKeyApiEvent:
+          Type: Api
+          Properties:
+            Path: /aws-keys/{keyId}
+            Method: get
+            RestApiId: !Ref ApiGatewayApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+        DeleteKeyApiEvent:
+          Type: Api
+          Properties:
+            Path: /aws-keys/{keyId}
+            Method: delete
+            RestApiId: !Ref ApiGatewayApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  IacCodesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src/
+      Handler: iac_codes.handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          CODES_TABLE: !Ref IacCodesTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IacCodesTable
+      Events:
+        ListCodesApiEvent:
+          Type: Api
+          Properties:
+            Path: /iac-codes
+            Method: get
+            RestApiId: !Ref ApiGatewayApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+        CreateCodeApiEvent:
+          Type: Api
+          Properties:
+            Path: /iac-codes
+            Method: post
+            RestApiId: !Ref ApiGatewayApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+        GetCodeApiEvent:
+          Type: Api
+          Properties:
+            Path: /iac-codes/{codeId}
+            Method: get
+            RestApiId: !Ref ApiGatewayApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+        DeleteCodeApiEvent:
+          Type: Api
+          Properties:
+            Path: /iac-codes/{codeId}
+            Method: delete
+            RestApiId: !Ref ApiGatewayApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  ExecuteIacFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src/
+      Handler: execute.handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Timeout: 300  # 5分钟执行超时
+      MemorySize: 512
+      Environment:
+        Variables:
+          KEYS_TABLE: !Ref AwsKeysTable
+          CODES_TABLE: !Ref IacCodesTable
+          EXECUTIONS_TABLE: !Ref ExecutionsTable
+          KMS_KEY_ID: !Ref KmsKey
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AwsKeysTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IacCodesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ExecutionsTable
+        - KMSDecryptPolicy:
+            KeyId: !Ref KmsKey
+        - Statement:
+            - Effect: Allow
+              Action:
+                - 'cloudformation:*'
+                - 'ec2:*'
+                - 's3:*'
+                - 'iam:*'
+                - 'lambda:*'
+                - 'apigateway:*'
+                - 'dynamodb:*'
+              Resource: '*'
+      Events:
+        ExecuteApiEvent:
+          Type: Api
+          Properties:
+            Path: /execute
+            Method: post
+            RestApiId: !Ref ApiGatewayApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: iacUsers
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+
+  AwsKeysTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: iacAwsKeys
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  IacCodesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: iacCodes
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  ExecutionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: iacExecutions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  KmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for encrypting AWS credentials
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: iac-platform-users
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: iac-platform-client
+      UserPoolId: !Ref UserPool
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${ApiGatewayApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}'
+    
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+    
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref UserPoolClient
