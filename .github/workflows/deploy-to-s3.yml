@@ -19,10 +19,10 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
-      - name: Sync Frontend to S3
+      - name: Sync static files to S3
         run: |
-          # 上传 frontend 文件夹到 S3 桶
-          aws s3 sync ./frontend s3://${{ secrets.AWS_S3_BUCKET }} --delete
+          # 上传 static 文件夹到 S3 桶
+          aws s3 sync ./static s3://${{ secrets.AWS_S3_BUCKET }} --delete
           
       - name: Invalidate CloudFront Cache
         run: |
