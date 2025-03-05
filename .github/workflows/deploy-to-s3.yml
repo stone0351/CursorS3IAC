@@ -1,60 +1,30 @@
-name: Deploy to AWS S3
-
+name: Deploy static files to AWS S3
 on:
   push:
     branches:
-      - main
+      - master  # 当推送到 master 分支时触发
     paths:
-      - '**/*.html'
-      - '**/*.css'
-      - '**/*.js'
-      - '**/*.jpg'
-      - '**/*.png'
-      - '**/*.svg'
-      - '**/*.ico'
-  
-  workflow_dispatch:  # 允许手动触发
-
+      - 'static/**'  # 只有当 static 文件夹下的文件发生变化时触发
+permissions:
+  id-token: write  # 允许 GitHub OIDC 访问 AWS
+  contents: read
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v3
-        
-      - name: Configure AWS credentials
+      - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-region: ${{ secrets.AWS_REGION }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          role-duration-seconds: 1200
-      
-      - name: Upload frontend to S3
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Sync Frontend to S3
         run: |
-          # 上传HTML、CSS和JavaScript文件
-          aws s3 sync . s3://${{ secrets.AWS_S3_BUCKET }} \
-            --exclude "*" \
-            --include "*.html" \
-            --include "static/**/*.css" \
-            --include "static/**/*.js" \
-            --include "static/**/*.jpg" \
-            --include "static/**/*.png" \
-            --include "static/**/*.svg" \
-            --include "static/**/*.ico" \
-            --delete
-      
-      - name: Invalidate CloudFront cache
-        run: |
-          # 获取CloudFront分配ID
-          DISTRIBUTION_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases.Items!=null] | [?contains(Aliases.Items, '${{ secrets.DOMAIN_NAME }}')].Id" --output text)
+          # 上传 frontend 文件夹到 S3 桶
+          aws s3 sync ./frontend s3://${{ secrets.AWS_S3_BUCKET }} --delete
           
-          if [ -n "$DISTRIBUTION_ID" ]; then
-            # 创建缓存失效
-            aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
-            echo "已创建CloudFront缓存失效"
-          else
-            echo "未找到匹配的CloudFront分配"
-          fi 
+      - name: Invalidate CloudFront Cache
+        run: |
+          # 刷新 CloudFront 缓存以使更改立即可见
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
