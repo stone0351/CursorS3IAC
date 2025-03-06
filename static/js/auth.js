@@ -33,7 +33,7 @@ function onGoogleSignIn(response) {
         });
         
         // 向后端API发送验证请求
-        fetch('https://api.example.com/auth/verify', {
+        fetch(`${API_BASE_URL}/auth/verify`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

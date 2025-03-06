@@ -1,5 +1,5 @@
 // API基础URL
-const API_BASE_URL = 'https://api.example.com';
+const API_BASE_URL = 'https://api.getmemap.com';
 
 // 获取用户ID令牌
 function getIdToken() {
