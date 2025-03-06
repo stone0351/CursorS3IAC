@@ -313,4 +313,6 @@ pre#results-output {
     100% {
         transform: translateY(-50%);
     }
-} 
+}
+
+console.log('onSignIn函数被调用'); 
