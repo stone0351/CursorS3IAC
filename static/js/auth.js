@@ -99,54 +99,62 @@ function onSignIn(googleUser) {
 
 // 退出登录
 function signOut() {
-    const auth2 = gapi.auth2.getAuthInstance();
-    
-    logAuthStatus('正在退出登录...');
-    
-    auth2.signOut().then(() => {
-        // 清除本地存储
-        localStorage.removeItem('user_id');
-        localStorage.removeItem('user_name');
-        localStorage.removeItem('user_email');
-        localStorage.removeItem('id_token');
+    try {
+        const auth2 = gapi.auth2.getAuthInstance();
         
-        // 隐藏登出按钮
-        document.getElementById('signout-button').style.display = 'none';
-        // 隐藏主内容
-        document.getElementById('main-content').style.display = 'none';
+        logAuthStatus('正在退出登录...');
         
-        // 记录退出状态
-        window.DebugLogger.log('用户已退出登录', window.DebugLogger.LOG_TYPE.AUTH);
-        
-        logAuthStatus('退出登录成功');
-    }).catch(error => {
-        // 记录退出错误
-        window.DebugLogger.log(`退出登录失败: ${error.message}`, window.DebugLogger.LOG_TYPE.ERROR, {
-            error: error.message
+        auth2.signOut().then(() => {
+            // 清除本地存储
+            localStorage.removeItem('user_id');
+            localStorage.removeItem('user_name');
+            localStorage.removeItem('user_email');
+            localStorage.removeItem('id_token');
+            
+            // 隐藏登出按钮
+            document.getElementById('signout-button').style.display = 'none';
+            // 隐藏主内容
+            document.getElementById('main-content').style.display = 'none';
+            
+            // 记录退出状态
+            window.DebugLogger.log('用户已退出登录', window.DebugLogger.LOG_TYPE.AUTH);
+            
+            logAuthStatus('退出登录成功');
+        }).catch(error => {
+            // 记录退出错误
+            window.DebugLogger.log(`退出登录失败: ${error.message}`, window.DebugLogger.LOG_TYPE.ERROR, {
+                error: error.message
+            });
+            
+            logAuthStatus(`退出登录失败: ${error.message}`);
         });
-        
-        logAuthStatus(`退出登录失败: ${error.message}`);
-    });
+    } catch (error) {
+        window.DebugLogger.log(`退出过程发生错误: ${error.message}`, window.DebugLogger.LOG_TYPE.ERROR, {
+            error: error.message,
+            stack: error.stack
+        });
+    }
 }
 
-// 初始化Google API客户端
+// 初始化Google API客户端 - 修改为使用getAuthInstance
 function initGoogleAuth() {
     logAuthStatus('初始化Google认证...');
     window.DebugLogger.log('开始初始化Google认证', window.DebugLogger.LOG_TYPE.AUTH);
     
+    // 检查gapi是否已加载
+    if (typeof gapi === 'undefined') {
+        window.DebugLogger.log('Google API尚未加载', window.DebugLogger.LOG_TYPE.ERROR);
+        logAuthStatus('Google API尚未加载，请稍后再试');
+        return;
+    }
+    
     gapi.load('auth2', () => {
         window.DebugLogger.log('Google auth2 API已加载', window.DebugLogger.LOG_TYPE.AUTH);
         
-        gapi.auth2.init({
-            client_id: '368121835122-4tpffhrba2q7kd1hicnbm4cnpg01a4ac.apps.googleusercontent.com',
-            scope: 'profile email'
-        }).then(() => {
-            window.DebugLogger.log('Google认证初始化完成', window.DebugLogger.LOG_TYPE.AUTH, {
-                client_id: '368121835122-4tpffhrba2q7kd1hicnbm4cnpg01a4ac.apps.googleusercontent.com',
-                scope: 'profile email'
-            });
-            
-            logAuthStatus('Google认证初始化完成');
+        // 检查auth2是否已初始化
+        if (gapi.auth2.getAuthInstance()) {
+            window.DebugLogger.log('检测到Google Auth已初始化，使用现有实例', window.DebugLogger.LOG_TYPE.AUTH);
+            logAuthStatus('Google认证已初始化');
             
             // 检查用户是否已经登录
             const auth2 = gapi.auth2.getAuthInstance();
@@ -156,16 +164,54 @@ function initGoogleAuth() {
                 const googleUser = auth2.currentUser.get();
                 onSignIn(googleUser);
             }
-        }).catch(error => {
-            window.DebugLogger.log(`Google认证初始化失败: ${error.message}`, window.DebugLogger.LOG_TYPE.ERROR, {
+            return;
+        }
+        
+        // 只有在未初始化的情况下才初始化
+        try {
+            gapi.auth2.init({
+                client_id: '368121835122-4tpffhrba2q7kd1hicnbm4cnpg01a4ac.apps.googleusercontent.com',
+                scope: 'profile email',
+                cookiepolicy: 'single_host_origin'
+            }).then(() => {
+                window.DebugLogger.log('Google认证初始化完成', window.DebugLogger.LOG_TYPE.AUTH);
+                logAuthStatus('Google认证初始化完成');
+                
+                // 检查用户是否已经登录
+                const auth2 = gapi.auth2.getAuthInstance();
+                if (auth2.isSignedIn.get()) {
+                    window.DebugLogger.log('检测到现有登录，正在自动登录...', window.DebugLogger.LOG_TYPE.AUTH);
+                    logAuthStatus('检测到现有登录，正在自动登录...');
+                    const googleUser = auth2.currentUser.get();
+                    onSignIn(googleUser);
+                }
+            }).catch(error => {
+                window.DebugLogger.log(`Google认证初始化失败: ${error.message}`, window.DebugLogger.LOG_TYPE.ERROR, {
+                    error: error.message,
+                    stack: error.stack
+                });
+                
+                logAuthStatus(`Google认证初始化失败: ${error.message}`);
+            });
+        } catch (error) {
+            window.DebugLogger.log(`Google认证初始化异常: ${error.message}`, window.DebugLogger.LOG_TYPE.ERROR, {
                 error: error.message,
                 stack: error.stack
             });
-            
-            logAuthStatus(`Google认证初始化失败: ${error.message}`);
-        });
+            logAuthStatus(`Google认证初始化异常: ${error.message}`);
+        }
     });
 }
 
 // 页面加载完成后初始化
-window.addEventListener('load', initGoogleAuth); 
+document.addEventListener('DOMContentLoaded', () => {
+    try {
+        // 延迟初始化，确保gapi已完全加载
+        setTimeout(initGoogleAuth, 1000);
+    } catch (error) {
+        window.DebugLogger.log(`页面加载时发生错误: ${error.message}`, window.DebugLogger.LOG_TYPE.ERROR, {
+            error: error.message,
+            stack: error.stack
+        });
+    }
+}); 
