@@ -1,3 +1,4 @@
+const API_BASE_URL = 'https://api.getmemap.com';
 // Google认证状态日志记录函数
 function logAuthStatus(message, type = 'info') {
     // 使用新的调试日志系统
